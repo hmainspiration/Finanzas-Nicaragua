@@ -105,7 +105,7 @@ const ChatList: React.FC<ChatListProps> = ({ data, onSelectChat, workingDate, se
                         </div>
                         <div className="ml-4 flex-1 border-b border-transparent">
                             <div className="flex justify-between items-baseline">
-                                <h2 className="text-foreground dark:text-[#e9edef] font-medium text-lg">Ofrenda General</h2>
+                                <h2 className="text-foreground dark:text-[#e9edef] font-medium text-lg">Ordinaria</h2>
                             </div>
                             <p className="text-muted-foreground dark:text-[#8696a0] text-sm truncate">
                                 {getOrdinariaSubtitle()}

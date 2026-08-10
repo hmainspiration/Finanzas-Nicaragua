@@ -34,7 +34,7 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ chatId, onBack, data, handlers,
 
     const isGeneral = chatId === 'ordinaria';
     const member = isGeneral ? null : data.members.find(m => m.id === chatId);
-    const chatName = isGeneral ? 'Ofrenda General' : member?.name || 'Desconocido';
+    const chatName = isGeneral ? 'Ordinaria' : member?.name || 'Desconocido';
 
     const formattedDate = workingDate.toLocaleDateString('es-ES', { 
         weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' 
@@ -108,7 +108,7 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ chatId, onBack, data, handlers,
             category: category,
             amount: amount,
             memberId: isGeneral ? undefined : chatId,
-            memberName: isGeneral ? 'General' : member?.name
+            memberName: isGeneral ? 'Ordinaria' : member?.name
         };
 
         handlers.setWeeklyRecords(prevRecords => {
@@ -156,10 +156,14 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ chatId, onBack, data, handlers,
 
         // Try to match category
         let matchedCategory = null;
-        for (const cat of data.categories) {
-            if (lowerText.includes(cat.toLowerCase())) {
-                matchedCategory = cat;
-                break;
+        if (isGeneral) {
+            matchedCategory = 'Ordinaria';
+        } else {
+            for (const cat of data.categories) {
+                if (lowerText.includes(cat.toLowerCase())) {
+                    matchedCategory = cat;
+                    break;
+                }
             }
         }
 
@@ -259,7 +263,10 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ chatId, onBack, data, handlers,
             <div className="flex-1 overflow-y-auto p-4 z-10 space-y-3">
                 <div className="flex justify-center mb-6 mt-2">
                     <div className="bg-[#fff3c8] dark:bg-[#182229] text-[#54656f] dark:text-[#ffd279] text-xs py-1.5 px-3 rounded-lg shadow-sm text-center max-w-[90%]">
-                        Escriba "Monto Categoría" para registrar. Ej: "Diezmo 100".
+                        {isGeneral 
+                            ? 'Escriba el monto para registrar. Ej: "100".'
+                            : 'Escriba "Monto Categoría" para registrar. Ej: "Diezmo 100".'
+                        }
                     </div>
                 </div>
 
@@ -336,7 +343,7 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ chatId, onBack, data, handlers,
                 <div className="flex-1 bg-white dark:bg-[#2a3942] rounded-2xl flex items-end mx-1 min-h-[44px]">
                     <textarea
                         className="w-full bg-transparent text-foreground dark:text-[#e9edef] px-4 py-3 max-h-32 focus:outline-none resize-none overflow-y-auto placeholder:text-muted-foreground/70 text-[15px]"
-                        placeholder="Mensaje (ej. Diezmo 100)"
+                        placeholder={isGeneral ? "Mensaje (ej. 100)" : "Mensaje (ej. Diezmo 100)"}
                         value={inputText}
                         onChange={(e) => setInputText(e.target.value)}
                         onKeyDown={(e) => {
