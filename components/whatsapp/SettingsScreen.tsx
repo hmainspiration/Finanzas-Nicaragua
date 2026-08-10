@@ -4,6 +4,7 @@ import AdminPanelTab from '../tabs/AdminPanelTab';
 
 const SettingsScreen: React.FC<{ data: any, handlers: any, onLogout: () => void }> = ({ data, handlers, onLogout }) => {
     const [showAdmin, setShowAdmin] = useState(false);
+    const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
     if (showAdmin) {
         return (
@@ -33,7 +34,7 @@ const SettingsScreen: React.FC<{ data: any, handlers: any, onLogout: () => void 
     }
 
     return (
-        <div className="flex flex-col h-full bg-[#f0f2f5] dark:bg-[#111b21]">
+        <div className="flex flex-col h-full bg-[#f0f2f5] dark:bg-[#111b21] relative">
             <div className="bg-[#00a884] dark:bg-[#202c33] text-white pt-4 pb-4 px-4 shadow-sm z-10">
                 <h1 className="text-xl font-medium">Ajustes</h1>
             </div>
@@ -69,11 +70,7 @@ const SettingsScreen: React.FC<{ data: any, handlers: any, onLogout: () => void 
 
                  <div className="bg-white dark:bg-[#202c33] mt-3">
                     <div className="flex items-center px-4 py-4 cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
-                         onClick={() => {
-                            if (window.confirm('¿Está seguro de cerrar sesión?')) {
-                                onLogout();
-                            }
-                         }}
+                         onClick={() => setShowLogoutConfirm(true)}
                     >
                         <div className="w-10 h-10 rounded-full bg-red-500/10 dark:bg-red-500/20 flex items-center justify-center text-red-500">
                             <LogOut className="w-5 h-5" />
@@ -89,6 +86,30 @@ const SettingsScreen: React.FC<{ data: any, handlers: any, onLogout: () => void 
                      <span className="text-xs mt-1">v2.0.0</span>
                  </div>
             </div>
+
+            {/* Logout Confirmation Modal */}
+            {showLogoutConfirm && (
+                <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+                    <div className="bg-card w-full max-w-sm rounded-2xl p-6 shadow-xl animate-in fade-in zoom-in-95 duration-200 border border-border">
+                        <h3 className="text-xl font-semibold mb-2">Cerrar Sesión</h3>
+                        <p className="text-muted-foreground mb-6">¿Estás seguro de que deseas cerrar tu sesión?</p>
+                        <div className="flex justify-end space-x-3">
+                            <button 
+                                onClick={() => setShowLogoutConfirm(false)}
+                                className="px-4 py-2 rounded-lg font-medium hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+                            >
+                                Cancelar
+                            </button>
+                            <button 
+                                onClick={onLogout}
+                                className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg font-medium transition-colors"
+                            >
+                                Cerrar Sesión
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
