@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { Settings, User, LogOut, Info, ShieldAlert } from 'lucide-react';
 import AdminPanelTab from '../tabs/AdminPanelTab';
+import { APP_VERSION } from '../../constants';
 
-const SettingsScreen: React.FC<{ data: any, handlers: any, onLogout: () => void }> = ({ data, handlers, onLogout }) => {
+const SettingsScreen: React.FC<{ data: any, handlers: any, onLogout: () => void, toggleTheme: () => void }> = ({ data, handlers, onLogout, toggleTheme }) => {
     const [showAdmin, setShowAdmin] = useState(false);
     const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
@@ -56,7 +57,7 @@ const SettingsScreen: React.FC<{ data: any, handlers: any, onLogout: () => void 
                     <div className="border-t border-border/50 ml-16"></div>
 
                     <div className="flex items-center px-4 py-4 cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
-                         onClick={handlers.toggleTheme}
+                         onClick={toggleTheme}
                     >
                         <div className="w-10 h-10 rounded-full bg-blue-500/10 dark:bg-blue-500/20 flex items-center justify-center text-blue-500">
                             <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" className="css-i6dzq1"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
@@ -83,7 +84,7 @@ const SettingsScreen: React.FC<{ data: any, handlers: any, onLogout: () => void 
 
                  <div className="mt-8 flex flex-col items-center justify-center opacity-50 pb-8">
                      <span className="text-xs">Sistema de Finanzas - Inspirado en WhatsApp</span>
-                     <span className="text-xs mt-1">v2.0.0</span>
+                     <span className="text-xs mt-1">v{APP_VERSION}</span>
                  </div>
             </div>
 

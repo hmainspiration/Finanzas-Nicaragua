@@ -2,5 +2,7 @@
   "name": "WhatsApp Sistema de Finanzas 1.0.0",
   "description": "A comprehensive web application for managing church finances, including members, donations, weekly records, and monthly reports, with data persistence and Supabase integration.",
   "requestFramePermissions": [],
-  "majorCapabilities": []
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

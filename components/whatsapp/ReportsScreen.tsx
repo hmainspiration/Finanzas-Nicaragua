@@ -16,9 +16,11 @@ interface ReportsScreenProps {
         comisionados: Comisionado[];
     };
     handlers: any;
+    workingDate?: Date;
+    setWorkingDate?: (date: Date) => void;
 }
 
-const ReportsScreen: React.FC<ReportsScreenProps> = ({ data, handlers }) => {
+const ReportsScreen: React.FC<ReportsScreenProps> = ({ data, handlers, workingDate, setWorkingDate }) => {
     const [subTab, setSubTab] = useState<'resumen' | 'historial' | 'mensual' | 'informe'>('resumen');
 
     return (
@@ -49,12 +51,18 @@ const ReportsScreen: React.FC<ReportsScreenProps> = ({ data, handlers }) => {
                 </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-2 bg-[#f0f2f5] dark:bg-[#111b21]">
+            <div className="flex-1 overflow-y-auto p-3 sm:p-4 bg-[#f0f2f5] dark:bg-[#111b21]">
                 {subTab === 'resumen' && (
                     <ResumenFinancieroTab 
                         currentRecord={null} 
-                        weeklyRecords={data.weeklyRecords} 
-                        categories={data.categories} 
+                        weeklyRecords={data.weeklyRecords}
+                        setWeeklyRecords={handlers.setWeeklyRecords}
+                        categories={data.categories}
+                        workingDate={workingDate}
+                        setWorkingDate={setWorkingDate}
+                        formulas={data.formulas}
+                        churchInfo={data.churchInfo}
+                        members={data.members}
                     />
                 )}
                 {subTab === 'historial' && (

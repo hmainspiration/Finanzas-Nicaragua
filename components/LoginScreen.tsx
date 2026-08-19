@@ -52,7 +52,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                                     id="password"
                                     type={showPassword ? "text" : "password"}
                                     value={password}
-                                    onChange={(e) => setPassword(e.target.value)}
+                                    onChange={(e) => setPassword(e.target.value.toUpperCase())}
                                     placeholder="Ingrese su clave..."
                                     className="w-full py-3.5 px-4 border border-gray-200 dark:border-zinc-700 bg-gray-50 dark:bg-zinc-800/50 rounded-2xl text-gray-900 dark:text-white placeholder:text-gray-400 focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 outline-none transition-all duration-200"
                                 />

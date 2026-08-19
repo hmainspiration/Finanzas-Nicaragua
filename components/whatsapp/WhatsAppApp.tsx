@@ -78,10 +78,15 @@ const WhatsAppApp: React.FC<WhatsAppAppProps> = ({ onLogout, data, handlers, the
                         />
                     )}
                     {activeTab === 'reports' && (
-                        <ReportsScreen data={data} handlers={handlers} />
+                        <ReportsScreen 
+                            data={data} 
+                            handlers={handlers} 
+                            workingDate={workingDate}
+                            setWorkingDate={setWorkingDate}
+                        />
                     )}
                     {activeTab === 'settings' && (
-                        <SettingsScreen data={data} handlers={handlers} onLogout={onLogout} />
+                        <SettingsScreen data={data} handlers={handlers} onLogout={onLogout} toggleTheme={toggleTheme} />
                     )}
                 </>
             )}

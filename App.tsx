@@ -8,6 +8,7 @@ import { INITIAL_MEMBERS, INITIAL_CATEGORIES, DEFAULT_FORMULAS, DEFAULT_CHURCH_I
 import MainApp from './screens/MainApp';
 import MainAppSencillo from './screens/MainAppSencillo';
 import WhatsAppApp from './components/whatsapp/WhatsAppApp';
+import { syncAllWeeklyRecords } from './utils/syncService';
 
 // A custom hook to manage state in localStorage
 function useLocalStorage<T>(key: string, initialValue: T): [T, React.Dispatch<React.SetStateAction<T>>] {
@@ -37,7 +38,7 @@ function useLocalStorage<T>(key: string, initialValue: T): [T, React.Dispatch<Re
 const App: React.FC = () => {
     const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
     const [appVersion, setAppVersion] = useState<'completo' | 'sencillo' | null>(null);
-    const { supabase, error: supabaseError, fetchItems, addItem } = useSupabase();
+    const { supabase, error: supabaseError, fetchItems, addItem, listFiles, getPublicUrl, uploadFile } = useSupabase();
 
     // --- State Management ---
     const [members, setMembers] = useState<Member[]>([]);
@@ -152,6 +153,26 @@ const App: React.FC = () => {
                         nombre: c.nombre,
                         cargo: c.cargo
                     })));
+
+                    // --- Sincronización en segundo plano de Reportes Semanales ---
+                    if (supabase && listFiles && getPublicUrl && uploadFile) {
+                        syncAllWeeklyRecords(
+                            supabase,
+                            listFiles,
+                            getPublicUrl,
+                            uploadFile,
+                            weeklyRecords,
+                            fetchedCategories.length > 0 ? fetchedCategories.map((c: any) => c.name) : INITIAL_CATEGORIES,
+                            formulas,
+                            churchInfo
+                        ).then(result => {
+                            if (result.success && result.mergedRecords.length > 0) {
+                                setWeeklyRecords(result.mergedRecords);
+                            }
+                        }).catch(e => {
+                            console.warn("Sincronización inicial en segundo plano completada con advertencia:", e);
+                        });
+                    }
                     
                 } catch (error) {
                     const errorMessage = error instanceof Error ? error.message : String(error);
