@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { Member, Formulas, ChurchInfo, Comisionado, WeeklyRecord, MonthlyReport } from '../../types';
 import { useSupabase } from '../../context/SupabaseContext';
-import { UserPlus, Pencil, Trash2, Check, X, Server, Wifi, AlertTriangle, Save } from 'lucide-react';
+import { UserPlus, Pencil, Trash2, Check, X, Server, Wifi, AlertTriangle, Save, Phone } from 'lucide-react';
 import { APP_VERSION, DEFAULT_FORMULAS, DEFAULT_CHURCH_INFO } from '../../constants';
 
 const SupabaseStatusIndicator: React.FC = () => {
@@ -87,7 +87,8 @@ const AdminPanelTab: React.FC<AdminPanelTabProps> = ({
     const [tempFormulas, setTempFormulas] = useState<Formulas>(formulas);
     const [tempChurchInfo, setTempChurchInfo] = useState<ChurchInfo>(churchInfo);
     const [editingMember, setEditingMember] = useState<Member | null>(null);
-    const [newComisionado, setNewComisionado] = useState({ nombre: '', cargo: '' });
+    const [newComisionado, setNewComisionado] = useState({ nombre: '', cargo: 'Comisión de Finanzas', celular: '' });
+    const [editingComisionado, setEditingComisionado] = useState<Comisionado | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const importFileRef = useRef<HTMLInputElement>(null);
     
@@ -236,17 +237,74 @@ const AdminPanelTab: React.FC<AdminPanelTabProps> = ({
     };
 
     const handleAddComisionado = async () => {
-        if (!newComisionado.nombre.trim() || !newComisionado.cargo.trim()) {
-            alert('Nombre y cargo son requeridos.');
+        if (!newComisionado.nombre.trim()) {
+            alert('El nombre es requerido.');
             return;
         }
         setIsSubmitting(true);
         try {
-            const added = await addItem('comisionados', newComisionado);
-            setComisionados(prev => [...prev, added].sort((a,b) => a.nombre.localeCompare(b.nombre)));
-            setNewComisionado({ nombre: '', cargo: '' });
+            const itemToAdd = {
+                nombre: newComisionado.nombre.trim(),
+                cargo: newComisionado.cargo.trim() || 'Comisión de Finanzas',
+                celular: newComisionado.celular.trim()
+            };
+            let addedId = 'com-' + Date.now();
+            try {
+                // Supabase table has only (nombre, cargo), we keep celular & signature locally
+                const added = await addItem('comisionados', {
+                    nombre: itemToAdd.nombre,
+                    cargo: itemToAdd.cargo
+                });
+                if (added?.id) addedId = added.id;
+            } catch (err) {
+                console.warn('Supabase add error, storing locally:', err);
+            }
+            const finalCom: Comisionado = {
+                id: addedId,
+                nombre: itemToAdd.nombre,
+                cargo: itemToAdd.cargo,
+                celular: itemToAdd.celular
+            };
+            setComisionados(prev => [...prev, finalCom].sort((a,b) => a.nombre.localeCompare(b.nombre)));
+            setNewComisionado({ nombre: '', cargo: 'Comisión de Finanzas', celular: '' });
         } catch (error) {
             alert(`Error al agregar comisionado: ${error instanceof Error ? error.message : String(error)}`);
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    const handleStartEditComisionado = (com: Comisionado) => {
+        setEditingComisionado({
+            id: com.id,
+            nombre: com.nombre,
+            cargo: com.cargo || 'Comisión de Finanzas',
+            celular: com.celular || '',
+            signature: com.signature
+        });
+    };
+
+    const handleSaveEditComisionado = async () => {
+        if (!editingComisionado) return;
+        if (!editingComisionado.nombre.trim()) {
+            alert('El nombre es requerido.');
+            return;
+        }
+        setIsSubmitting(true);
+        try {
+            try {
+                // Supabase table stores (nombre, cargo)
+                await updateItem('comisionados', editingComisionado.id, {
+                    nombre: editingComisionado.nombre.trim(),
+                    cargo: editingComisionado.cargo.trim() || 'Comisión de Finanzas'
+                });
+            } catch (err) {
+                console.warn('Supabase update error, updating locally:', err);
+            }
+            setComisionados(prev => prev.map(c => c.id === editingComisionado.id ? editingComisionado : c));
+            setEditingComisionado(null);
+        } catch (error) {
+            alert(`Error al guardar comisionado: ${error instanceof Error ? error.message : String(error)}`);
         } finally {
             setIsSubmitting(false);
         }
@@ -510,21 +568,115 @@ const AdminPanelTab: React.FC<AdminPanelTabProps> = ({
 
              <div className="p-4 bg-card rounded-xl shadow-lg border">
                 <h3 className="text-xl font-bold text-foreground mb-4">Comisión de Finanzas</h3>
-                <div className="flex flex-col md:flex-row gap-2 mb-4">
-                    <input type="text" value={newComisionado.nombre} onChange={(e) => setNewComisionado({...newComisionado, nombre: e.target.value})} placeholder="Nombre completo" className="flex-grow p-2 border-input bg-input rounded-md" />
-                    <input type="text" value={newComisionado.cargo} onChange={(e) => setNewComisionado({...newComisionado, cargo: e.target.value})} placeholder="Cargo" className="flex-grow p-2 border-input bg-input rounded-md" />
-                    <button onClick={handleAddComisionado} disabled={isSubmitting} className="flex-shrink-0 flex items-center justify-center gap-2 px-4 py-2 bg-primary text-primary-foreground font-semibold rounded-lg hover:bg-primary/90 disabled:bg-opacity-50">Añadir</button>
+                <p className="text-xs text-muted-foreground mb-3">
+                    Configure los miembros de la Comisión Local de Finanzas (Nombre, Celular, Cargo y Firma) para la emisión oficial de informes mensuales y firmas electrónicas.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-4">
+                    <input
+                        type="text"
+                        value={newComisionado.nombre}
+                        onChange={(e) => setNewComisionado({...newComisionado, nombre: e.target.value})}
+                        placeholder="Nombre completo"
+                        className="p-2 border-input bg-input rounded-md text-foreground text-sm"
+                    />
+                    <input
+                        type="text"
+                        value={newComisionado.celular}
+                        onChange={(e) => setNewComisionado({...newComisionado, celular: e.target.value})}
+                        placeholder="Celular (ej. 8888-8888)"
+                        className="p-2 border-input bg-input rounded-md text-foreground text-sm"
+                    />
+                    <div className="flex gap-2">
+                        <input
+                            type="text"
+                            value={newComisionado.cargo}
+                            onChange={(e) => setNewComisionado({...newComisionado, cargo: e.target.value})}
+                            placeholder="Cargo (ej. Comisión de Finanzas)"
+                            className="flex-grow p-2 border-input bg-input rounded-md text-foreground text-sm"
+                        />
+                        <button
+                            onClick={handleAddComisionado}
+                            disabled={isSubmitting}
+                            className="flex-shrink-0 flex items-center justify-center gap-1 px-4 py-2 bg-primary text-primary-foreground font-semibold rounded-lg hover:bg-primary/90 disabled:bg-opacity-50 text-sm"
+                        >
+                            <UserPlus className="w-4 h-4" /> Añadir
+                        </button>
+                    </div>
                 </div>
                 <ul className="space-y-3">
                     {comisionados.map(com => (
                         <li key={com.id} className="p-3 bg-secondary rounded-lg border">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <p className="font-semibold text-secondary-foreground">{com.nombre}</p>
-                                    <p className="text-sm text-muted-foreground">{com.cargo}</p>
+                            {editingComisionado?.id === com.id ? (
+                                <div className="space-y-2">
+                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                        <input
+                                            type="text"
+                                            value={editingComisionado.nombre}
+                                            onChange={(e) => setEditingComisionado({ ...editingComisionado, nombre: e.target.value })}
+                                            placeholder="Nombre completo"
+                                            className="p-1.5 border-input bg-input rounded text-sm text-foreground"
+                                        />
+                                        <input
+                                            type="text"
+                                            value={editingComisionado.celular || ''}
+                                            onChange={(e) => setEditingComisionado({ ...editingComisionado, celular: e.target.value })}
+                                            placeholder="Celular (ej. 8888-8888)"
+                                            className="p-1.5 border-input bg-input rounded text-sm text-foreground"
+                                        />
+                                        <input
+                                            type="text"
+                                            value={editingComisionado.cargo}
+                                            onChange={(e) => setEditingComisionado({ ...editingComisionado, cargo: e.target.value })}
+                                            placeholder="Cargo"
+                                            className="p-1.5 border-input bg-input rounded text-sm text-foreground"
+                                        />
+                                    </div>
+                                    <div className="flex justify-end gap-2">
+                                        <button
+                                            onClick={handleSaveEditComisionado}
+                                            disabled={isSubmitting}
+                                            className="flex items-center gap-1 px-3 py-1 bg-green-600 text-white rounded text-xs font-semibold hover:bg-green-700"
+                                        >
+                                            <Check className="w-3.5 h-3.5" /> Guardar
+                                        </button>
+                                        <button
+                                            onClick={() => setEditingComisionado(null)}
+                                            className="flex items-center gap-1 px-3 py-1 bg-muted text-muted-foreground rounded text-xs font-semibold hover:bg-muted/80"
+                                        >
+                                            <X className="w-3.5 h-3.5" /> Cancelar
+                                        </button>
+                                    </div>
                                 </div>
-                                <button onClick={() => handleDeleteComisionado(com.id)} className="p-2 text-destructive hover:text-destructive/80 flex-shrink-0"><Trash2 className="w-4 h-4" /></button>
-                            </div>
+                            ) : (
+                                <div className="flex items-center justify-between">
+                                    <div className="space-y-0.5">
+                                        <p className="font-semibold text-secondary-foreground text-sm sm:text-base">{com.nombre}</p>
+                                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                                            <span><strong>Cargo:</strong> {com.cargo || 'Comisión de Finanzas'}</span>
+                                            <span className="flex items-center gap-1 text-primary font-medium">
+                                                <Phone className="w-3 h-3" />
+                                                <strong>Celular:</strong> {com.celular ? com.celular : <span className="text-amber-500 italic">No asignado (Toca Editar)</span>}
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                        <button
+                                            onClick={() => handleStartEditComisionado(com)}
+                                            className="p-2 text-muted-foreground hover:text-foreground"
+                                            title="Editar datos"
+                                        >
+                                            <Pencil className="w-4 h-4" />
+                                        </button>
+                                        <button
+                                            onClick={() => handleDeleteComisionado(com.id)}
+                                            className="p-2 text-destructive hover:text-destructive/80"
+                                            title="Eliminar comisionado"
+                                        >
+                                            <Trash2 className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
                             <div className="mt-3 pt-3 border-t border-border/50">
                                 <label className="block text-xs font-medium text-muted-foreground mb-1">Firma (PNG/JPG, max 500KB)</label>
                                 {com.signature ? (

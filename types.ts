@@ -19,6 +19,7 @@ export interface Comisionado {
   id: string;
   nombre: string;
   cargo: string;
+  celular?: string;
   signature?: string;
 }
 

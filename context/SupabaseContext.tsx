@@ -61,7 +61,7 @@ export const SupabaseProvider: React.FC<{ children: ReactNode }> = ({ children }
         if (!supabase) throw new Error("Supabase client not initialized.");
         const { data, error: uploadError } = await supabase.storage.from(bucket).upload(fileName, file, { cacheControl: '3600', upsert });
         if (uploadError) {
-            setError(uploadError.message);
+            console.error("Storage upload error:", uploadError);
             throw uploadError;
         }
         return data;
@@ -71,7 +71,7 @@ export const SupabaseProvider: React.FC<{ children: ReactNode }> = ({ children }
         if (!supabase) throw new Error("Supabase client not initialized.");
         const { data, error: listError } = await supabase.storage.from(bucket).list(undefined, { limit: 100, offset: 0, sortBy: { column: 'created_at', order: 'desc' } });
         if (listError) {
-            setError(listError.message);
+            console.error("Storage list error:", listError);
             throw listError;
         }
         return data;
@@ -89,7 +89,7 @@ export const SupabaseProvider: React.FC<{ children: ReactNode }> = ({ children }
         if (!supabase) throw new Error("Supabase client not initialized.");
         const { data, error: fetchError } = await supabase.from(tableName).select('*').order(orderBy, { ascending: true });
         if (fetchError) {
-            setError(fetchError.message);
+            console.error(`Database fetch error on ${tableName}:`, fetchError);
             throw fetchError;
         }
         return data;
@@ -99,7 +99,7 @@ export const SupabaseProvider: React.FC<{ children: ReactNode }> = ({ children }
         if (!supabase) throw new Error("Supabase client not initialized.");
         const { data, error: addError } = await supabase.from(tableName).insert([item]).select();
         if (addError) {
-            setError(addError.message);
+            console.error(`Database add error on ${tableName}:`, addError);
             throw addError;
         }
         return data[0];
@@ -109,7 +109,7 @@ export const SupabaseProvider: React.FC<{ children: ReactNode }> = ({ children }
         if (!supabase) throw new Error("Supabase client not initialized.");
         const { data, error: updateError } = await supabase.from(tableName).update(updates).eq('id', id).select();
         if (updateError) {
-            setError(updateError.message);
+            console.error(`Database update error on ${tableName}:`, updateError);
             throw updateError;
         }
         return data[0];
@@ -119,7 +119,7 @@ export const SupabaseProvider: React.FC<{ children: ReactNode }> = ({ children }
         if (!supabase) throw new Error("Supabase client not initialized.");
         const { error: deleteError } = await supabase.from(tableName).delete().eq('id', id);
         if (deleteError) {
-            setError(deleteError.message);
+            console.error(`Database delete error on ${tableName}:`, deleteError);
             throw deleteError;
         }
     }, [supabase]);

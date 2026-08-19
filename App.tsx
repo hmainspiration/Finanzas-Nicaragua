@@ -43,7 +43,7 @@ const App: React.FC = () => {
     // --- State Management ---
     const [members, setMembers] = useState<Member[]>([]);
     const [categories, setCategories] = useState<string[]>([]);
-    const [comisionados, setComisionados] = useState<Comisionado[]>([]);
+    const [comisionados, setComisionados] = useLocalStorage<Comisionado[]>('app_comisionados', []);
     const [isLoading, setIsLoading] = useState(true);
     const [loadingMessage, setLoadingMessage] = useState("Cargando datos desde la nube...");
 
@@ -148,11 +148,20 @@ const App: React.FC = () => {
                     }
 
                     // --- Comisionados ---
-                    setComisionados(fetchedComisionados.map((c: any) => ({
-                        id: c.id,
-                        nombre: c.nombre,
-                        cargo: c.cargo
-                    })));
+                    if (fetchedComisionados && fetchedComisionados.length > 0) {
+                        setComisionados((prevComs: Comisionado[]) => {
+                            return fetchedComisionados.map((c: any) => {
+                                const existing = prevComs.find(p => p.id === c.id || p.nombre === c.nombre);
+                                return {
+                                    id: c.id,
+                                    nombre: c.nombre,
+                                    cargo: c.cargo || existing?.cargo || 'Comisión de Finanzas',
+                                    celular: c.celular || c.telefono || existing?.celular || '',
+                                    signature: c.signature || c.firma || existing?.signature || '',
+                                };
+                            });
+                        });
+                    }
 
                     // --- Sincronización en segundo plano de Reportes Semanales ---
                     if (supabase && listFiles && getPublicUrl && uploadFile) {

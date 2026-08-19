@@ -1,6 +1,6 @@
 import { Member, Formulas, MonthlyReportFormState, ChurchInfo } from './types';
 
-export const APP_VERSION = '2.1.0';
+export const APP_VERSION = '2.2.4';
 
 // Lista de miembros actualizada según la solicitud del usuario.
 export const INITIAL_MEMBERS: Member[] = [
@@ -56,6 +56,8 @@ export const MONTH_NAMES = [
 
 export const initialMonthlyReportFormState: MonthlyReportFormState = {
     // 1. Información General
+    'fecha-del': '01',
+    'fecha-al': '31',
     'clave-iglesia': '',
     'nombre-iglesia': '',
     'distrito': '',
@@ -66,7 +68,12 @@ export const initialMonthlyReportFormState: MonthlyReportFormState = {
     'nombre-ministro': '',
     'grado-ministro': '',
     'tel-ministro': '',
+    'cel-ministro': '',
+    'fam-dependientes': '0',
+    'obreros': '0',
     // 2. Entradas
+    'saldo-pro-construccion': '',
+    'intereses-bancarios': '',
     'saldo-anterior': '',
     'ing-diezmos': '',
     'ing-ofrendas-ordinarias': '',
@@ -88,6 +95,8 @@ export const initialMonthlyReportFormState: MonthlyReportFormState = {
     'ing-actividades-locales': '',
     'ing-ciudad-lldm': '',
     'ing-adquisicion-terreno': '',
+    'ing-otras-colectas': '',
+    'ing-reuniones-jovenes': '',
     // 3. Salidas
     'egr-asignacion': '',
     'egr-gomer': '',
@@ -107,14 +116,19 @@ export const initialMonthlyReportFormState: MonthlyReportFormState = {
     'egr-actividades-locales': '',
     'egr-ciudad-lldm': '',
     'egr-adquisicion-terreno': '',
+    'egr-otras-colectas': '',
+    'egr-reuniones-jovenes': '',
     // 4. Resumen
     'dist-direccion': '',
     'dist-tesoreria': '',
     'dist-pro-construccion': '',
     'dist-otros': '',
     'comision-nombre-1': '',
+    'comision-celular-1': '',
     'comision-nombre-2': '',
+    'comision-celular-2': '',
     'comision-nombre-3': '',
+    'comision-celular-3': '',
 };
 
 // Las credenciales de Google Drive y los IDs de carpetas se han movido a variables de entorno
