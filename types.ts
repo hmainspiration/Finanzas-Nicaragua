@@ -44,6 +44,8 @@ export interface ChurchInfo {
     district: string;
     department: string;
     ministerPhone: string;
+    dependentFamilyMembers?: string;
+    initialProConstruccion?: string;
     ministerSignature?: string;
 }
 

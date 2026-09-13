@@ -1,9 +1,9 @@
-import { WeeklyRecord, Formulas, MonthlyReport, MonthlyReportFormState, ChurchInfo, Comisionado, Member } from '../../types';
+import { WeeklyRecord, Formulas, MonthlyReport, MonthlyReportFormState, ChurchInfo, Comisionado, Member, Offering } from '../../types';
 import { MONTH_NAMES, initialMonthlyReportFormState } from '../../constants';
 import { Upload, Trash2, Save, FileDown, Eye, X, Printer, CheckCircle } from 'lucide-react';
 import { useSupabase } from '../../context/SupabaseContext';
 import React, { useState, useMemo, FC, useEffect, useCallback, ReactNode, memo, ChangeEvent } from 'react';
-import { generateMonthlyReportSvg, generatePdfFromSvg, calculateReportTotals as calculateTotalsUtil } from '../../utils/monthlyReportSvgGenerator';
+import { generateMonthlyReportSvg, generatePdfFromSvg } from '../../utils/monthlyReportSvgGenerator';
 
 interface InformeMensualTabProps {
     records: WeeklyRecord[];
@@ -71,7 +71,8 @@ const Field: FC<{
     isCurrency?: boolean;
     value: string;
     onChange: (e: ChangeEvent<HTMLInputElement>) => void;
-}> = memo(({ id, label, isCurrency = true, value, onChange }) => (
+    sublabel?: React.ReactNode;
+}> = memo(({ id, label, isCurrency = true, value, onChange, sublabel }) => (
     <div>
         <label htmlFor={id} className="block text-xs font-semibold text-muted-foreground mb-1">{label}</label>
         {isCurrency ? (
@@ -87,6 +88,7 @@ const Field: FC<{
                 className="w-full p-2 border rounded-lg bg-input text-foreground text-sm focus:ring-2 focus:ring-primary focus:outline-none"
             />
         )}
+        {sublabel && <div className="mt-1">{sublabel}</div>}
     </div>
 ));
 
@@ -156,8 +158,44 @@ const UploadedMonthlyReportsList: React.FC = () => {
     );
 };
 
+// Helper para la logística de Pro-Construcción:
+// 1. Toda ofrenda que ingrese en Construcción Local se suma a Pro-construcción.
+// 2. Si registra egreso (Traspaso para Construcción Local), se suma solo el remanente (ej: 100 ingreso y egreso 80 = 20 solo se suman).
+// 3. Este remanente neto se suma al Saldo del Mes Anterior de Pro-Construcción.
+const computeProConstruccion = (saldoAntStr?: string, ingConstStr?: string, egrConstStr?: string): number => {
+    const parse = (val?: string) => {
+        if (!val) return 0;
+        const clean = parseFloat(String(val).replace(/[^0-9.-]/g, ''));
+        return isNaN(clean) ? 0 : clean;
+    };
+    const saldoAnt = parse(saldoAntStr);
+    const ing = parse(ingConstStr);
+    const egr = parse(egrConstStr);
+    const remanenteNeto = Math.max(0, ing - egr);
+    return Number((saldoAnt + remanenteNeto).toFixed(2));
+};
+
 const InformeMensualTab: React.FC<InformeMensualTabProps> = ({ records, formulas, savedReports, setSavedReports, churchInfo, comisionados, members }) => {
-    const [formState, setFormState] = useState<MonthlyReportFormState>(initialMonthlyReportFormState);
+    const [formState, setFormState] = useState<MonthlyReportFormState>(() => {
+        const initial = { ...initialMonthlyReportFormState };
+        if (churchInfo.district) initial['distrito'] = churchInfo.district;
+        if (churchInfo.department) initial['departamento'] = churchInfo.department;
+        if (churchInfo.defaultMinister) initial['nombre-ministro'] = churchInfo.defaultMinister;
+        if (churchInfo.ministerGrade) initial['grado-ministro'] = churchInfo.ministerGrade;
+        if (churchInfo.ministerPhone) {
+            initial['tel-ministro'] = churchInfo.ministerPhone;
+            initial['cel-ministro'] = churchInfo.ministerPhone;
+        }
+        if (churchInfo.dependentFamilyMembers !== undefined && churchInfo.dependentFamilyMembers !== '') {
+            initial['fam-dependientes'] = churchInfo.dependentFamilyMembers;
+        }
+        if (churchInfo.initialProConstruccion !== undefined && churchInfo.initialProConstruccion !== '') {
+            initial['saldo-pro-construccion'] = churchInfo.initialProConstruccion;
+            const distCalculated = computeProConstruccion(churchInfo.initialProConstruccion, initial['ing-construccion-local'], initial['egr-traspaso-construccion']);
+            initial['dist-pro-construccion'] = distCalculated > 0 ? distCalculated.toFixed(2) : '0.00';
+        }
+        return initial;
+    });
     const [isGenerating, setIsGenerating] = useState(false);
     const [previewModalOpen, setPreviewModalOpen] = useState(false);
     const [previewSvg, setPreviewSvg] = useState<string>('');
@@ -165,15 +203,41 @@ const InformeMensualTab: React.FC<InformeMensualTabProps> = ({ records, formulas
     const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
     const { uploadFile, supabase } = useSupabase();
 
-    const handleChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
-        const { name, value } = e.target;
-        setFormState(prevState => ({ ...prevState, [name]: value }));
-    }, []);
+    // Sincronizar automáticamente valores persistentes de administración cuando cambien
+    useEffect(() => {
+        setFormState(prev => {
+            const next = { ...prev };
+            let hasChanges = false;
+            if (churchInfo.dependentFamilyMembers !== undefined && churchInfo.dependentFamilyMembers !== '' && prev['fam-dependientes'] !== churchInfo.dependentFamilyMembers) {
+                next['fam-dependientes'] = churchInfo.dependentFamilyMembers;
+                hasChanges = true;
+            }
+            if (churchInfo.initialProConstruccion !== undefined && churchInfo.initialProConstruccion !== '' && prev['saldo-pro-construccion'] !== churchInfo.initialProConstruccion) {
+                next['saldo-pro-construccion'] = churchInfo.initialProConstruccion;
+                const distCalculated = computeProConstruccion(churchInfo.initialProConstruccion, next['ing-construccion-local'], next['egr-traspaso-construccion']);
+                next['dist-pro-construccion'] = distCalculated > 0 ? distCalculated.toFixed(2) : '0.00';
+                hasChanges = true;
+            }
+            return hasChanges ? next : prev;
+        });
+    }, [churchInfo.dependentFamilyMembers, churchInfo.initialProConstruccion]);
 
-    // Calculate totals automatically based on state
-    const totals = useMemo(() => {
-        const getNum = (key: string) => {
-            const val = formState[key];
+    const isConstructionCategory = (catName: string): boolean => {
+        if (!catName) return false;
+        const clean = catName.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+        return clean.includes('construccion') || clean.includes('pro-construccion') || clean.includes('pro construccion');
+    };
+
+    const getPreviousMonthReport = (month: number, year: number, reportsList: MonthlyReport[]): MonthlyReport | undefined => {
+        const prevMonth = month === 1 ? 12 : month - 1;
+        const prevYear = month === 1 ? year - 1 : year;
+        const prevReportId = `report-${prevYear}-${prevMonth}`;
+        return reportsList.find(r => (r.month === prevMonth && r.year === prevYear) || r.id === prevReportId);
+    };
+
+    const calculateTotalsFromFormState = (state: MonthlyReportFormState) => {
+        const getNum = (key: keyof MonthlyReportFormState) => {
+            const val = state[key];
             if (!val) return 0;
             const parsed = parseFloat(String(val).replace(/[^0-9.-]/g, ''));
             return isNaN(parsed) ? 0 : parsed;
@@ -186,7 +250,7 @@ const InformeMensualTab: React.FC<InformeMensualTabProps> = ({ records, formulas
             'ing-muebles', 'ing-viajes-ministro', 'ing-reuniones-ministeriales', 'ing-atencion-ministros',
             'ing-viajes-extranjero', 'ing-actividades-locales', 'ing-ciudad-lldm', 'ing-adquisicion-terreno',
             'ing-otras-colectas', 'ing-reuniones-jovenes'
-        ].reduce((sum, k) => sum + getNum(k), 0);
+        ].reduce((sum, k) => sum + getNum(k as keyof MonthlyReportFormState), 0);
 
         const totalIngresos = ingOfrendas + ingEspeciales + ingLocales;
         const saldoAnterior = getNum('saldo-anterior');
@@ -198,7 +262,7 @@ const InformeMensualTab: React.FC<InformeMensualTabProps> = ({ records, formulas
             'egr-muebles', 'egr-viajes-ministro', 'egr-reuniones-ministeriales', 'egr-atencion-ministros',
             'egr-viajes-extranjero', 'egr-actividades-locales', 'egr-ciudad-lldm', 'egr-adquisicion-terreno',
             'egr-otras-colectas', 'egr-reuniones-jovenes'
-        ].reduce((sum, k) => sum + getNum(k), 0);
+        ].reduce((sum, k) => sum + getNum(k as keyof MonthlyReportFormState), 0);
 
         const totalSalidas = getNum('egr-gomer') + egrEspeciales + egrLocales;
         const remanente = totalDisponible - totalSalidas;
@@ -215,7 +279,29 @@ const InformeMensualTab: React.FC<InformeMensualTabProps> = ({ records, formulas
             totalSalidas,
             remanente,
         };
-    }, [formState]);
+    };
+
+    const handleChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
+        const { name, value } = e.target;
+        setFormState(prevState => {
+            const nextState = { ...prevState, [name]: value };
+
+            // Si el usuario modifica saldo-pro-construccion, ing-construccion-local o egr-traspaso-construccion,
+            // recalculamos automáticamente dist-pro-construccion según la regla
+            if (name === 'saldo-pro-construccion' || name === 'ing-construccion-local' || name === 'egr-traspaso-construccion') {
+                const sAnt = name === 'saldo-pro-construccion' ? value : nextState['saldo-pro-construccion'];
+                const ing = name === 'ing-construccion-local' ? value : nextState['ing-construccion-local'];
+                const egr = name === 'egr-traspaso-construccion' ? value : nextState['egr-traspaso-construccion'];
+                const distCalculated = computeProConstruccion(sAnt, ing, egr);
+                nextState['dist-pro-construccion'] = distCalculated > 0 ? distCalculated.toFixed(2) : '0.00';
+            }
+
+            return nextState;
+        });
+    }, []);
+
+    // Calculate totals automatically based on state
+    const totals = useMemo(() => calculateTotalsFromFormState(formState), [formState]);
 
     const handleLoadData = () => {
         const filteredRecords = records.filter(r => r.month === selectedMonth && r.year === selectedYear);
@@ -224,17 +310,70 @@ const InformeMensualTab: React.FC<InformeMensualTabProps> = ({ records, formulas
             return;
         }
 
-        const publicServiceCategories = ["Luz", "Agua"];
-        let totalDiezmo = 0, totalOrdinaria = 0, totalServicios = 0, totalGomer = 0, totalDiezmoDeDiezmo = 0;
+        // Servicios Públicos Oficiales: Agua, Luz, Internet, Cable, Tel (Teléfono), Gas, Imp (Impuestos)
+        const isPublicServiceCategory = (catName: string): boolean => {
+            if (!catName) return false;
+            const clean = catName.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+            const keywords = ['luz', 'agua', 'gas', 'internet', 'wifi', 'cable', 'tel', 'imp', 'servicio'];
+            return keywords.some(kw => clean === kw || clean.startsWith(kw) || clean.includes(` ${kw}`) || clean.includes(kw));
+        };
+
+        let totalDiezmo = 0, totalOrdinaria = 0, totalServicios = 0, totalConstruccion = 0, totalGomer = 0, totalDiezmoDeDiezmo = 0;
         
-        const activeMembersCount = members.filter(m => m.isActive).length;
+        // Función para identificar si una ofrenda pertenece a un miembro real (no ofrenda general/ordinaria)
+        const isIndividualMemberOffering = (offering: Offering): boolean => {
+            if (!offering.memberId && !offering.memberName) return false;
+
+            const memberIdClean = (offering.memberId || '').trim().toLowerCase();
+            if (memberIdClean === 'general' || memberIdClean === 'ordinaria' || memberIdClean === 'ordinario') {
+                return false;
+            }
+
+            const nameClean = (offering.memberName || '')
+                .trim()
+                .toLowerCase()
+                .normalize("NFD")
+                .replace(/[\u0300-\u036f]/g, "");
+
+            if (
+                !nameClean ||
+                nameClean === 'ordinaria' ||
+                nameClean === 'ordinario' ||
+                nameClean === 'ofrenda ordinaria' ||
+                nameClean === 'general' ||
+                nameClean === 'ofrenda general' ||
+                nameClean === 'anonimo' ||
+                nameClean === 'anonima' ||
+                nameClean === 'colecta general'
+            ) {
+                return false;
+            }
+
+            return true;
+        };
+
+        const getMemberUniqueKey = (offering: Offering): string => {
+            const memberIdClean = (offering.memberId || '').trim();
+            if (memberIdClean && memberIdClean.toLowerCase() !== 'general' && memberIdClean.toLowerCase() !== 'ordinaria') {
+                return `id_${memberIdClean}`;
+            }
+            return `name_${(offering.memberName || '').trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")}`;
+        };
+
+        const contributingMembersSet = new Set<string>();
 
         filteredRecords.forEach(record => {
             let weeklyDiezmo = 0, weeklyOrdinaria = 0;
             record.offerings.forEach(d => {
                 if (d.category === "Diezmo") weeklyDiezmo += d.amount;
                 if (d.category === "Ordinaria") weeklyOrdinaria += d.amount;
-                if (publicServiceCategories.includes(d.category)) totalServicios += d.amount;
+                if (isPublicServiceCategory(d.category)) totalServicios += d.amount;
+                if (isConstructionCategory(d.category)) totalConstruccion += d.amount;
+
+                // Solo contar si pertenece a un miembro individual que ofrendó en el mes
+                if (isIndividualMemberOffering(d)) {
+                    contributingMembersSet.add(getMemberUniqueKey(d));
+                }
             });
 
             totalDiezmo += weeklyDiezmo;
@@ -247,8 +386,26 @@ const InformeMensualTab: React.FC<InformeMensualTabProps> = ({ records, formulas
             totalGomer += Math.round(weeklyTotal - weeklyDiezmoDeDiezmo);
         });
 
+        const activeMembersCount = contributingMembersSet.size;
+
         // Compute last day of selected month
         const lastDay = new Date(selectedYear, selectedMonth, 0).getDate();
+
+        // Buscar informe del mes anterior en savedReports para obtener el saldo de Pro-construcción acumulado
+        const prevReport = getPreviousMonthReport(selectedMonth, selectedYear, savedReports);
+        let saldoAntPro = '0.00';
+        if (churchInfo.initialProConstruccion && churchInfo.initialProConstruccion.trim() !== '') {
+            // Prioridad al saldo temporal configurado en Administración
+            saldoAntPro = churchInfo.initialProConstruccion.trim();
+        } else if (prevReport && prevReport.formData && prevReport.formData['dist-pro-construccion']) {
+            saldoAntPro = prevReport.formData['dist-pro-construccion'] || prevReport.formData['saldo-pro-construccion'] || '0.00';
+        } else if (formState['saldo-pro-construccion']) {
+            saldoAntPro = formState['saldo-pro-construccion'];
+        }
+
+        const ingConstVal = totalConstruccion > 0 ? totalConstruccion.toFixed(2) : (formState['ing-construccion-local'] || '0.00');
+        const egrConstVal = formState['egr-traspaso-construccion'] || '0.00';
+        const distProCalculated = computeProConstruccion(saldoAntPro, ingConstVal, egrConstVal);
 
         setFormState(prev => ({
             ...prev,
@@ -262,15 +419,21 @@ const InformeMensualTab: React.FC<InformeMensualTabProps> = ({ records, formulas
             'departamento': churchInfo.department || 'Matagalpa',
             'tel-ministro': churchInfo.ministerPhone || '',
             'cel-ministro': churchInfo.ministerPhone || '',
+            'fam-dependientes': (churchInfo.dependentFamilyMembers !== undefined && churchInfo.dependentFamilyMembers !== '')
+                ? churchInfo.dependentFamilyMembers
+                : (prev['fam-dependientes'] || '0'),
             'mes-reporte': MONTH_NAMES[selectedMonth - 1],
             'ano-reporte': selectedYear.toString(),
             'miembros-activos': activeMembersCount.toString(),
+            'saldo-pro-construccion': parseFloat(saldoAntPro) > 0 ? parseFloat(saldoAntPro).toFixed(2) : (parseFloat(saldoAntPro) === 0 ? '0.00' : saldoAntPro),
             'ing-diezmos': totalDiezmo > 0 ? totalDiezmo.toFixed(2) : '',
             'ing-ofrendas-ordinarias': totalOrdinaria > 0 ? totalOrdinaria.toFixed(2) : '',
             'ing-servicios-publicos': totalServicios > 0 ? totalServicios.toFixed(2) : '',
+            'ing-construccion-local': totalConstruccion > 0 ? totalConstruccion.toFixed(2) : (prev['ing-construccion-local'] || ''),
             'egr-servicios-publicos': totalServicios > 0 ? totalServicios.toFixed(2) : '',
             'egr-gomer': totalGomer > 0 ? totalGomer.toFixed(2) : '',
             'dist-direccion': totalDiezmoDeDiezmo > 0 ? totalDiezmoDeDiezmo.toFixed(2) : '',
+            'dist-pro-construccion': distProCalculated > 0 ? distProCalculated.toFixed(2) : '0.00',
             'egr-asignacion': formulas.remanenteThreshold.toString(),
             'comision-nombre-1': comisionados[0]?.nombre || prev['comision-nombre-1'] || '',
             'comision-celular-1': comisionados[0]?.celular || prev['comision-celular-1'] || '',
@@ -279,7 +442,11 @@ const InformeMensualTab: React.FC<InformeMensualTabProps> = ({ records, formulas
             'comision-nombre-3': comisionados[2]?.nombre || prev['comision-nombre-3'] || '',
             'comision-celular-3': comisionados[2]?.celular || prev['comision-celular-3'] || '',
         }));
-        alert(`Datos cargados para ${MONTH_NAMES[selectedMonth - 1]} ${selectedYear}.`);
+        alert(`Datos cargados para ${MONTH_NAMES[selectedMonth - 1]} ${selectedYear}:\n` +
+              `• Miembros Activos (que ofrendaron en el mes): ${activeMembersCount}\n` +
+              `• Familiares dependientes (desde Administración): ${churchInfo.dependentFamilyMembers || '0'}\n` +
+              `• Pro-construcción Saldo Mes Anterior: C$ ${parseFloat(saldoAntPro || '0').toFixed(2)}\n` +
+              `• Pro-construcción recalculado automáticamente.`);
     };
 
     const handleOpenPreview = () => {
@@ -290,20 +457,9 @@ const InformeMensualTab: React.FC<InformeMensualTabProps> = ({ records, formulas
 
     const generatePdfDocument = async (customState?: MonthlyReportFormState): Promise<{ blob: Blob; fileName: string }> => {
         const stateToUse = customState || formState;
-        const currentTotals = customState ? {
-            ingOfrendas: parseFloat(stateToUse['ing-diezmos'] || '0') + parseFloat(stateToUse['ing-ofrendas-ordinarias'] || '0') + parseFloat(stateToUse['ing-primicias'] || '0') + parseFloat(stateToUse['ing-ayuda-encargado'] || '0'),
-            ingEspeciales: parseFloat(stateToUse['ing-ceremonial'] || '0') + parseFloat(stateToUse['ing-ofrenda-especial-sdd'] || '0') + parseFloat(stateToUse['ing-evangelizacion'] || '0') + parseFloat(stateToUse['ing-santa-cena'] || '0'),
-            ingLocales: parseFloat(stateToUse['ing-servicios-publicos'] || '0') + parseFloat(stateToUse['ing-arreglos-locales'] || '0') + parseFloat(stateToUse['ing-mantenimiento'] || '0'),
-            totalIngresos: 0,
-            saldoAnterior: parseFloat(stateToUse['saldo-anterior'] || '0'),
-            totalDisponible: 0,
-            egrEspeciales: 0,
-            egrLocales: 0,
-            totalSalidas: 0,
-            remanente: 0,
-        } : totals;
+        const currentTotals = customState ? calculateTotalsFromFormState(customState) : totals;
 
-        const svgString = generateMonthlyReportSvg(stateToUse, totals, churchInfo, comisionados);
+        const svgString = generateMonthlyReportSvg(stateToUse, currentTotals, churchInfo, comisionados);
         const mes = stateToUse['mes-reporte'] || 'Mes';
         const anio = stateToUse['ano-reporte'] || 'Año';
         const iglesia = stateToUse['nombre-iglesia'] || 'Iglesia';
@@ -340,6 +496,8 @@ const InformeMensualTab: React.FC<InformeMensualTabProps> = ({ records, formulas
         }
     };
 
+    const prevMonthReport = useMemo(() => getPreviousMonthReport(selectedMonth, selectedYear, savedReports), [selectedMonth, selectedYear, savedReports]);
+
     const handleClearForm = () => {
         if (window.confirm('¿Estás seguro de que quieres limpiar todos los campos?')) {
             setFormState(initialMonthlyReportFormState);
@@ -351,7 +509,7 @@ const InformeMensualTab: React.FC<InformeMensualTabProps> = ({ records, formulas
         const existingReportIndex = savedReports.findIndex(r => r.id === reportId);
 
         if (existingReportIndex > -1) {
-            if (!window.confirm('Ya existe un informe para este mes. ¿Desea sobrescribirlo?')) {
+            if (!window.confirm(`Ya existe un informe para ${MONTH_NAMES[selectedMonth - 1]} ${selectedYear}. ¿Desea sobrescribirlo?`)) {
                 return;
             }
         }
@@ -371,7 +529,9 @@ const InformeMensualTab: React.FC<InformeMensualTabProps> = ({ records, formulas
             setSavedReports(prev => [...prev, newReport]);
         }
 
-        alert('Informe guardado exitosamente.');
+        alert(`Informe de ${MONTH_NAMES[selectedMonth - 1]} ${selectedYear} guardado exitosamente.\n\n` +
+              `• Remanente de Pro-Construcción: C$ ${formState['dist-pro-construccion'] || '0.00'}.\n` +
+              `Este saldo quedará automáticamente disponible como "Saldo del Mes Anterior" para el informe del próximo mes.`);
     };
 
     const handleLoadReport = (report: MonthlyReport) => {
@@ -475,7 +635,18 @@ const InformeMensualTab: React.FC<InformeMensualTabProps> = ({ records, formulas
                         <Field id="mes-reporte" label="Del Mes De" isCurrency={false} value={formState['mes-reporte']} onChange={handleChange} />
                         <Field id="ano-reporte" label="Del Año" isCurrency={false} value={formState['ano-reporte']} onChange={handleChange} />
                         <Field id="clave-iglesia" label="Clave Iglesia" isCurrency={false} value={formState['clave-iglesia']} onChange={handleChange} />
-                        <Field id="miembros-activos" label="Miembros Activos" isCurrency={false} value={formState['miembros-activos']} onChange={handleChange} />
+                        <Field 
+                            id="miembros-activos" 
+                            label="Miembros Activos" 
+                            isCurrency={false} 
+                            value={formState['miembros-activos']} 
+                            onChange={handleChange}
+                            sublabel={
+                                <span className="text-[11px] text-muted-foreground block">
+                                    Miembros que ofrendaron en el mes (excluye ordinaria)
+                                </span>
+                            }
+                        />
                         <Field id="distrito" label="Distrito" isCurrency={false} value={formState['distrito']} onChange={handleChange} />
                         <Field id="nombre-iglesia" label="Nombre Iglesia Local" isCurrency={false} value={formState['nombre-iglesia']} onChange={handleChange} />
                         <Field id="departamento" label="Departamento" isCurrency={false} value={formState['departamento']} onChange={handleChange} />
@@ -485,7 +656,18 @@ const InformeMensualTab: React.FC<InformeMensualTabProps> = ({ records, formulas
                         <Field id="grado-ministro" label="Grado" isCurrency={false} value={formState['grado-ministro']} onChange={handleChange} />
                         <Field id="tel-ministro" label="N° Telefónico" isCurrency={false} value={formState['tel-ministro']} onChange={handleChange} />
                         <Field id="cel-ministro" label="Celular" isCurrency={false} value={formState['cel-ministro']} onChange={handleChange} />
-                        <Field id="fam-dependientes" label="Familiares Dependientes" isCurrency={false} value={formState['fam-dependientes']} onChange={handleChange} />
+                        <Field 
+                            id="fam-dependientes" 
+                            label="Familiares Dependientes" 
+                            isCurrency={false} 
+                            value={formState['fam-dependientes']} 
+                            onChange={handleChange} 
+                            sublabel={
+                                <span className="text-[11px] text-muted-foreground block">
+                                    {churchInfo.dependentFamilyMembers ? `Configurado en Administración (${churchInfo.dependentFamilyMembers})` : 'Persistente desde Administración'}
+                                </span>
+                            }
+                        />
                         <Field id="obreros" label="Obreros" isCurrency={false} value={formState['obreros']} onChange={handleChange} />
                     </div>
                 </Accordion>
@@ -494,7 +676,63 @@ const InformeMensualTab: React.FC<InformeMensualTabProps> = ({ records, formulas
                 <Accordion title="2. Entradas (Ingresos)">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
                         <Subheading title="Saldo del Mes Anterior" color="text-blue-700 dark:text-blue-400" />
-                        <Field id="saldo-pro-construccion" label="Pro-Construcción" value={formState['saldo-pro-construccion']} onChange={handleChange} />
+                        <Field 
+                            id="saldo-pro-construccion" 
+                            label="Pro-Construcción (Saldo Mes Anterior)" 
+                            value={formState['saldo-pro-construccion']} 
+                            onChange={handleChange} 
+                            sublabel={
+                                <div className="space-y-1 mt-0.5">
+                                    {churchInfo.initialProConstruccion && (
+                                        <div className="flex items-center gap-1 text-[11px] text-amber-700 dark:text-amber-400 font-medium">
+                                            <span>⚙️ Saldo temporal de Administración: C$ {parseFloat(churchInfo.initialProConstruccion || '0').toFixed(2)}</span>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    const val = churchInfo.initialProConstruccion!;
+                                                    setFormState(prev => {
+                                                        const sAnt = val;
+                                                        const ing = prev['ing-construccion-local'];
+                                                        const egr = prev['egr-traspaso-construccion'];
+                                                        const distCalculated = computeProConstruccion(sAnt, ing, egr);
+                                                        return {
+                                                            ...prev,
+                                                            'saldo-pro-construccion': parseFloat(val).toFixed(2),
+                                                            'dist-pro-construccion': distCalculated > 0 ? distCalculated.toFixed(2) : '0.00'
+                                                        };
+                                                    });
+                                                }}
+                                                className="text-[10px] font-bold uppercase tracking-wider text-amber-800 dark:text-amber-300 underline hover:no-underline ml-1"
+                                            >
+                                                Aplicar
+                                            </button>
+                                        </div>
+                                    )}
+                                    {prevMonthReport && (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                const val = prevMonthReport.formData['dist-pro-construccion'] || prevMonthReport.formData['saldo-pro-construccion'] || '0.00';
+                                                setFormState(prev => {
+                                                    const sAnt = val;
+                                                    const ing = prev['ing-construccion-local'];
+                                                    const egr = prev['egr-traspaso-construccion'];
+                                                    const distCalculated = computeProConstruccion(sAnt, ing, egr);
+                                                    return {
+                                                        ...prev,
+                                                        'saldo-pro-construccion': parseFloat(val).toFixed(2),
+                                                        'dist-pro-construccion': distCalculated > 0 ? distCalculated.toFixed(2) : '0.00'
+                                                    };
+                                                });
+                                            }}
+                                            className="text-[11px] text-emerald-700 dark:text-emerald-400 font-semibold hover:underline flex items-center gap-1"
+                                        >
+                                            <span>↻ Usar saldo de informe guardado ({MONTH_NAMES[prevMonthReport.month - 1]}): C$ {parseFloat(prevMonthReport.formData['dist-pro-construccion'] || '0').toFixed(2)}</span>
+                                        </button>
+                                    )}
+                                </div>
+                            }
+                        />
                         <Field id="intereses-bancarios" label="Intereses Bancarios" value={formState['intereses-bancarios']} onChange={handleChange} />
                         <div className="md:col-span-2">
                             <Field id="saldo-anterior" label="Saldo Inicial del Mes (Total Anterior)" value={formState['saldo-anterior']} onChange={handleChange} />
@@ -569,6 +807,41 @@ const InformeMensualTab: React.FC<InformeMensualTabProps> = ({ records, formulas
                         <Field id="dist-tesoreria" label="Tesorería (Cuenta de Remanentes)" value={formState['dist-tesoreria']} onChange={handleChange} />
                         <Field id="dist-pro-construccion" label="Pro-Construcción" value={formState['dist-pro-construccion']} onChange={handleChange} />
                         <Field id="dist-otros" label="Otros" value={formState['dist-otros']} onChange={handleChange} />
+
+                        {/* Tarjeta explicativa de la logística de Pro-Construcción */}
+                        <div className="md:col-span-2 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 rounded-xl p-3.5 text-xs text-emerald-900 dark:text-emerald-200 mt-1 mb-2">
+                            <div className="font-bold flex items-center justify-between gap-2 mb-2 text-sm">
+                                <span className="flex items-center gap-1.5">
+                                    <span>📐 Logística de Pro-Construcción:</span>
+                                </span>
+                                <span className="text-[11px] bg-emerald-200/80 dark:bg-emerald-800/60 px-2.5 py-0.5 rounded-full font-semibold">
+                                    Cálculo Automático
+                                </span>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-center font-medium">
+                                <div className="bg-white/90 dark:bg-black/30 p-2 rounded-lg border border-emerald-200/60 dark:border-emerald-800/40">
+                                    <span className="block text-[11px] text-muted-foreground">Saldo Mes Anterior</span>
+                                    <span className="font-bold text-sm text-foreground">
+                                        C$ {parseFloat(formState['saldo-pro-construccion'] || '0').toFixed(2)}
+                                    </span>
+                                </div>
+                                <div className="bg-white/90 dark:bg-black/30 p-2 rounded-lg border border-emerald-200/60 dark:border-emerald-800/40">
+                                    <span className="block text-[11px] text-muted-foreground">+ Remanente Neto (Ingreso - Egreso)</span>
+                                    <span className="font-bold text-sm text-emerald-700 dark:text-emerald-400">
+                                        + C$ {Math.max(0, (parseFloat(formState['ing-construccion-local'] || '0') - parseFloat(formState['egr-traspaso-construccion'] || '0'))).toFixed(2)}
+                                    </span>
+                                </div>
+                                <div className="bg-white/90 dark:bg-black/30 p-2 rounded-lg border-2 border-emerald-500/80 dark:border-emerald-500 shadow-sm">
+                                    <span className="block text-[11px] text-muted-foreground">= Pro-Construcción Final</span>
+                                    <span className="font-black text-sm text-emerald-700 dark:text-emerald-300">
+                                        C$ {parseFloat(formState['dist-pro-construccion'] || '0').toFixed(2)}
+                                    </span>
+                                </div>
+                            </div>
+                            <p className="text-[11px] text-muted-foreground mt-2 text-center">
+                                Toda ofrenda de Construcción Local se suma a Pro-construcción. Si se registra egreso en Traspaso para Construcción Local, se suma solo la diferencia neta. Al guardar este informe, este total quedará disponible automáticamente como Saldo del Mes Anterior para el próximo mes.
+                            </p>
+                        </div>
 
                         <Subheading title="Comisión Local de Finanzas" />
                         <Field id="comision-nombre-1" label="Comisionado 1: Nombre" isCurrency={false} value={formState['comision-nombre-1']} onChange={handleChange} />

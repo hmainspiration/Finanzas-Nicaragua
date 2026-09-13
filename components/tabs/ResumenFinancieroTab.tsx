@@ -3,7 +3,22 @@ import { WeeklyRecord, Formulas, ChurchInfo, Member } from '../../types';
 import { MONTH_NAMES, DEFAULT_FORMULAS, DEFAULT_CHURCH_INFO } from '../../constants';
 import { useSupabase } from '../../context/SupabaseContext';
 import { uploadWeeklyRecordToCloud, syncAllWeeklyRecords, getWeeklyRecordFileName } from '../../utils/syncService';
-import { CloudUpload, RefreshCw, CheckCircle2, AlertCircle, FileSpreadsheet, Copy, Check, ChevronDown, Calendar, Users } from 'lucide-react';
+import { 
+  CloudUpload, 
+  RefreshCw, 
+  CheckCircle2, 
+  AlertCircle, 
+  Copy, 
+  Check, 
+  ChevronDown, 
+  Calendar, 
+  Users, 
+  Pencil, 
+  Trash2, 
+  Plus, 
+  X, 
+  ShieldCheck
+} from 'lucide-react';
 
 interface ResumenFinancieroTabProps {
   currentRecord?: WeeklyRecord | null;
@@ -59,6 +74,47 @@ const ResumenFinancieroTab: FC<ResumenFinancieroTabProps> = ({
   const [syncStatusMsg, setSyncStatusMsg] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const [cloudFileNames, setCloudFileNames] = useState<Set<string>>(new Set());
+
+  // Auto-sync states & settings
+  const [autoSyncEnabled, setAutoSyncEnabled] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('app_auto_sync_enabled');
+      return saved !== null ? JSON.parse(saved) : true;
+    } catch {
+      return true;
+    }
+  });
+  const [autoSyncStatus, setAutoSyncStatus] = useState<'idle' | 'saving' | 'synced' | 'offline' | 'error'>('idle');
+  const [lastSyncedTime, setLastSyncedTime] = useState<string | null>(null);
+  const lastUploadedContentRef = React.useRef<string>('');
+
+  // Offering editing & management states
+  const [editingOfferingId, setEditingOfferingId] = useState<string | null>(null);
+  const [editFormData, setEditFormData] = useState<{
+    memberName: string;
+    category: string;
+    amount: string;
+    memberId?: string;
+  }>({ memberName: '', category: 'Ordinaria', amount: '' });
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+
+  // New offering form state
+  const [isAddingOffering, setIsAddingOffering] = useState(false);
+  const [newOfferingData, setNewOfferingData] = useState<{
+    memberName: string;
+    category: string;
+    amount: string;
+    memberId?: string;
+  }>({ memberName: 'Ordinaria', category: 'Ordinaria', amount: '' });
+
+  // Toggle auto-sync preference
+  const toggleAutoSync = () => {
+    setAutoSyncEnabled(prev => {
+      const next = !prev;
+      localStorage.setItem('app_auto_sync_enabled', JSON.stringify(next));
+      return next;
+    });
+  };
 
   // Check cloud files on mount or when supabase is ready
   useEffect(() => {
@@ -152,6 +208,131 @@ const ResumenFinancieroTab: FC<ResumenFinancieroTabProps> = ({
       totalGeneral
     };
   }, [recordToShow, categories, formulas]);
+
+  // Auto-sync debounced effect: saves automatically to cloud when recordToShow changes
+  useEffect(() => {
+    if (!autoSyncEnabled || !supabase || !recordToShow || !uploadFile) return;
+    if (!recordToShow.offerings || recordToShow.offerings.length === 0) return;
+
+    const signature = `${recordToShow.id}-${recordToShow.offerings.length}-${recordToShow.offerings.map(o => `${o.id || ''}:${o.memberName || ''}:${o.category || ''}:${o.amount}`).join('|')}`;
+    
+    // Si ya coincide con lo subido, no repetir
+    if (lastUploadedContentRef.current === signature) {
+      return;
+    }
+
+    setAutoSyncStatus('saving');
+    const timer = setTimeout(async () => {
+      try {
+        const fileName = await uploadWeeklyRecordToCloud(uploadFile, recordToShow, categories);
+        setCloudFileNames(prev => new Set([...prev, fileName]));
+        lastUploadedContentRef.current = signature;
+        setAutoSyncStatus('synced');
+        setLastSyncedTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+      } catch (err) {
+        console.error("Auto-sync error:", err);
+        setAutoSyncStatus('offline');
+      }
+    }, 2200);
+
+    return () => clearTimeout(timer);
+  }, [recordToShow, autoSyncEnabled, supabase, uploadFile, categories]);
+
+  // Handlers para edición de ofrendas
+  const handleStartEditOffering = (offering: any, index: number) => {
+    const id = offering.id || `offering-${index}`;
+    setEditingOfferingId(id);
+    setEditFormData({
+      memberName: offering.memberName || 'Ordinaria',
+      category: offering.category || 'Ordinaria',
+      amount: offering.amount ? offering.amount.toString() : '',
+      memberId: offering.memberId
+    });
+    setDeleteConfirmId(null);
+  };
+
+  const handleCancelEditOffering = () => {
+    setEditingOfferingId(null);
+  };
+
+  const handleSaveEditOffering = async (targetId: string, index: number) => {
+    if (!setWeeklyRecords || !recordToShow) return;
+    const cleanAmount = parseFloat(String(editFormData.amount).replace(/[^0-9.-]/g, ''));
+    if (isNaN(cleanAmount) || cleanAmount <= 0) {
+      alert("Por favor ingrese un monto válido mayor a 0.");
+      return;
+    }
+
+    const memberNameTrimmed = editFormData.memberName.trim() || 'Ordinaria';
+    const isOrd = memberNameTrimmed.toLowerCase() === 'ordinaria';
+    const matchedMember = members.find(m => m.name.toLowerCase() === memberNameTrimmed.toLowerCase());
+
+    setWeeklyRecords(prev => prev.map(rec => {
+      if (rec.id !== recordToShow.id) return rec;
+      const updatedOfferings = [...rec.offerings];
+      const idx = updatedOfferings.findIndex((o, i) => (o.id ? o.id === targetId : `offering-${i}` === targetId) || i === index);
+      if (idx >= 0) {
+        updatedOfferings[idx] = {
+          ...updatedOfferings[idx],
+          id: updatedOfferings[idx].id || crypto.randomUUID(),
+          memberName: isOrd ? 'Ordinaria' : memberNameTrimmed,
+          category: editFormData.category,
+          amount: cleanAmount,
+          memberId: isOrd ? undefined : (matchedMember ? matchedMember.id : updatedOfferings[idx].memberId)
+        };
+      }
+      return { ...rec, offerings: updatedOfferings };
+    }));
+
+    setEditingOfferingId(null);
+  };
+
+  const handleDeleteOffering = (targetId: string, index: number) => {
+    if (!setWeeklyRecords || !recordToShow) return;
+    setWeeklyRecords(prev => prev.map(rec => {
+      if (rec.id !== recordToShow.id) return rec;
+      const updatedOfferings = rec.offerings.filter((o, i) => {
+        if (o.id) return o.id !== targetId;
+        return i !== index;
+      });
+      return { ...rec, offerings: updatedOfferings };
+    }));
+    setDeleteConfirmId(null);
+    if (editingOfferingId === targetId) setEditingOfferingId(null);
+  };
+
+  const handleSaveNewOffering = () => {
+    if (!setWeeklyRecords || !recordToShow) return;
+    const cleanAmount = parseFloat(String(newOfferingData.amount).replace(/[^0-9.-]/g, ''));
+    if (isNaN(cleanAmount) || cleanAmount <= 0) {
+      alert("Por favor ingrese un monto válido mayor a 0.");
+      return;
+    }
+
+    const memberNameTrimmed = newOfferingData.memberName.trim() || 'Ordinaria';
+    const isOrd = memberNameTrimmed.toLowerCase() === 'ordinaria';
+    const matchedMember = members.find(m => m.name.toLowerCase() === memberNameTrimmed.toLowerCase());
+
+    const newOff = {
+      id: crypto.randomUUID(),
+      memberName: isOrd ? 'Ordinaria' : memberNameTrimmed,
+      category: newOfferingData.category || 'Ordinaria',
+      amount: cleanAmount,
+      memberId: isOrd ? undefined : (matchedMember ? matchedMember.id : undefined)
+    };
+
+    setWeeklyRecords(prev => prev.map(rec => {
+      if (rec.id !== recordToShow.id) return rec;
+      return {
+        ...rec,
+        offerings: [...(rec.offerings || []), newOff]
+      };
+    }));
+
+    // Reset form
+    setNewOfferingData({ memberName: 'Ordinaria', category: 'Ordinaria', amount: '' });
+    setIsAddingOffering(false);
+  };
 
   // Check if current active record is uploaded in cloud
   const isCurrentRecordInCloud = useMemo(() => {
@@ -343,27 +524,52 @@ const ResumenFinancieroTab: FC<ResumenFinancieroTabProps> = ({
 
         {/* Sync & Cloud Action Bar */}
         <div className="mt-4 pt-4 border-t border-border/60 flex flex-wrap items-center justify-between gap-2.5">
-          <div className="flex items-center gap-2">
-            {isCurrentRecordInCloud ? (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20">
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                Guardado en la nube
+          <div className="flex items-center gap-2 flex-wrap">
+            {autoSyncStatus === 'saving' || isUploading ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/30 animate-pulse">
+                <RefreshCw className="w-3.5 h-3.5 animate-spin text-blue-600" />
+                Guardando automáticamente en la nube...
+              </span>
+            ) : (autoSyncStatus === 'synced' || isCurrentRecordInCloud) ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                Sincronizado en la nube {lastSyncedTime ? `(${lastSyncedTime})` : ''}
+              </span>
+            ) : autoSyncStatus === 'offline' ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+                <AlertCircle className="w-3.5 h-3.5" />
+                Guardado en el equipo (Sin internet)
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/30">
                 <AlertCircle className="w-3.5 h-3.5" />
                 Pendiente de subir
               </span>
             )}
+
+            {/* Auto-sync indicator badge */}
+            <button
+              type="button"
+              onClick={toggleAutoSync}
+              className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border transition-colors ${
+                autoSyncEnabled 
+                  ? 'bg-[#00a884]/10 text-[#008f6f] dark:text-[#25d366] border-[#00a884]/30 hover:bg-[#00a884]/20'
+                  : 'bg-muted text-muted-foreground border-border hover:bg-muted/80'
+              }`}
+              title={autoSyncEnabled ? 'Auto-sincronización activada. Clic para pausar.' : 'Auto-sincronización pausada. Clic para activar.'}
+            >
+              <ShieldCheck className="w-3 h-3" />
+              <span>Auto-Sync: {autoSyncEnabled ? 'Activo' : 'Pausado'}</span>
+            </button>
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
-            {/* Upload Current Week to Cloud */}
+            {/* Upload Current Week to Cloud (Manual override) */}
             <button
               onClick={handleUploadCurrentToCloud}
               disabled={isUploading || !recordToShow}
               className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl bg-[#00a884] text-white hover:bg-[#008f6f] active:scale-95 transition-all shadow-sm disabled:opacity-50"
-              title="Sube este reporte a la nube para que otros lo vean desde su computadora"
+              title="Sube manualmente este reporte a la nube en este momento"
             >
               {isUploading ? (
                 <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -503,35 +709,317 @@ const ResumenFinancieroTab: FC<ResumenFinancieroTabProps> = ({
 
           {/* Offerings Details / Individual List */}
           <div className="p-4 sm:p-5 bg-card rounded-2xl shadow-sm border border-border">
-            <div className="flex items-center justify-between mb-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
               <div className="flex items-center gap-2">
                 <Users className="w-4 h-4 text-[#00a884]" />
                 <h3 className="text-base font-bold text-foreground">Detalle de Ofrendas Registradas</h3>
+                <span className="text-xs px-2.5 py-0.5 rounded-full bg-secondary text-muted-foreground font-semibold">
+                  {(recordToShow.offerings || []).length} aportaciones
+                </span>
               </div>
-              <span className="text-xs px-2.5 py-1 rounded-full bg-secondary text-muted-foreground font-semibold">
-                {(recordToShow.offerings || []).length} aportaciones
-              </span>
+              
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAddingOffering(prev => !prev);
+                  setEditingOfferingId(null);
+                  setDeleteConfirmId(null);
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-[#00a884]/10 hover:bg-[#00a884]/20 text-[#008f6f] dark:text-[#25d366] border border-[#00a884]/30 transition-all active:scale-95"
+              >
+                {isAddingOffering ? (
+                  <>
+                    <X className="w-3.5 h-3.5" />
+                    <span>Cerrar formulario</span>
+                  </>
+                ) : (
+                  <>
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>+ Añadir ofrenda</span>
+                  </>
+                )}
+              </button>
             </div>
 
-            {(recordToShow.offerings || []).length === 0 ? (
-              <p className="text-xs text-muted-foreground text-center py-4">No hay ofrendas individuales en esta semana.</p>
-            ) : (
-              <div className="divide-y divide-border/60 max-h-80 overflow-y-auto pr-1">
-                {(recordToShow.offerings || []).map((offering, idx) => (
-                  <div key={offering.id || idx} className="py-2.5 flex items-center justify-between text-sm">
-                    <div className="min-w-0 pr-2">
-                      <p className="font-medium text-foreground truncate">
-                        {offering.memberName || 'Ofrenda General'}
-                      </p>
-                      <span className="inline-block px-2 py-0.5 rounded text-[11px] font-medium bg-muted text-muted-foreground">
-                        {offering.category}
-                      </span>
-                    </div>
-                    <div className="text-right font-bold text-foreground text-sm flex-shrink-0">
-                      C$ {offering.amount.toLocaleString('es-NI', { minimumFractionDigits: 2 })}
+            {/* Formulario para agregar una nueva ofrenda manualmente */}
+            {isAddingOffering && (
+              <div className="mb-4 p-3.5 sm:p-4 rounded-xl bg-secondary/70 border border-[#00a884]/40 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-[#008f6f] dark:text-[#25d366]">
+                    Añadir ofrenda a esta semana
+                  </h4>
+                  <button
+                    type="button"
+                    onClick={() => setIsAddingOffering(false)}
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  {/* Miembro */}
+                  <div>
+                    <label className="block text-[11px] font-semibold text-muted-foreground mb-1">
+                      Miembro / Donante:
+                    </label>
+                    <select
+                      value={newOfferingData.memberName}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        const found = members.find(m => m.name === val);
+                        setNewOfferingData(prev => ({
+                          ...prev,
+                          memberName: val,
+                          memberId: found ? found.id : undefined
+                        }));
+                      }}
+                      className="w-full bg-background text-foreground text-xs font-medium py-2 px-2.5 rounded-lg border border-border focus:ring-2 focus:ring-[#00a884] focus:outline-none"
+                    >
+                      <option value="Ordinaria">Ordinaria (General / Colecta)</option>
+                      {members.filter(m => m.isActive).map(m => (
+                        <option key={m.id} value={m.name}>{m.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Categoría */}
+                  <div>
+                    <label className="block text-[11px] font-semibold text-muted-foreground mb-1">
+                      Categoría:
+                    </label>
+                    <select
+                      value={newOfferingData.category}
+                      onChange={(e) => setNewOfferingData(prev => ({ ...prev, category: e.target.value }))}
+                      className="w-full bg-background text-foreground text-xs font-medium py-2 px-2.5 rounded-lg border border-border focus:ring-2 focus:ring-[#00a884] focus:outline-none"
+                    >
+                      {categories.map(cat => (
+                        <option key={cat} value={cat}>{cat}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Monto */}
+                  <div>
+                    <label className="block text-[11px] font-semibold text-muted-foreground mb-1">
+                      Monto (C$ Córdobas):
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-muted-foreground">C$</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        placeholder="0.00"
+                        value={newOfferingData.amount}
+                        onChange={(e) => setNewOfferingData(prev => ({ ...prev, amount: e.target.value }))}
+                        className="w-full bg-background text-foreground text-xs font-medium py-2 pl-8 pr-2.5 rounded-lg border border-border focus:ring-2 focus:ring-[#00a884] focus:outline-none"
+                      />
                     </div>
                   </div>
-                ))}
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setIsAddingOffering(false)}
+                    className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-muted text-muted-foreground hover:bg-muted/80"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveNewOffering}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-[#00a884] text-white hover:bg-[#008f6f] shadow-sm active:scale-95"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Guardar ofrenda</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {(recordToShow.offerings || []).length === 0 ? (
+              <div className="text-center py-6 border border-dashed border-border rounded-xl">
+                <p className="text-xs text-muted-foreground">No hay ofrendas registradas para esta semana.</p>
+                <button
+                  type="button"
+                  onClick={() => setIsAddingOffering(true)}
+                  className="mt-2 text-xs font-semibold text-[#00a884] hover:underline inline-flex items-center gap-1"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Registrar la primera ofrenda
+                </button>
+              </div>
+            ) : (
+              <div className="divide-y divide-border/60 max-h-96 overflow-y-auto pr-1">
+                {(recordToShow.offerings || []).map((offering, idx) => {
+                  const targetId = offering.id || `offering-${idx}`;
+                  const isEditing = editingOfferingId === targetId;
+                  const isDeleting = deleteConfirmId === targetId;
+
+                  if (isEditing) {
+                    return (
+                      <div key={targetId} className="py-3 px-3 my-1 rounded-xl bg-secondary/80 border border-primary/40 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-foreground">
+                            Editando ofrenda #{idx + 1}
+                          </span>
+                          <button 
+                            onClick={handleCancelEditOffering} 
+                            className="text-muted-foreground hover:text-foreground"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                          {/* Selector Miembro */}
+                          <div>
+                            <label className="block text-[10px] font-semibold text-muted-foreground mb-0.5">Miembro / Donante</label>
+                            <select
+                              value={editFormData.memberName}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                const found = members.find(m => m.name === val);
+                                setEditFormData(prev => ({
+                                  ...prev,
+                                  memberName: val,
+                                  memberId: found ? found.id : undefined
+                                }));
+                              }}
+                              className="w-full bg-background text-foreground text-xs font-medium py-1.5 px-2 rounded-lg border border-border focus:ring-2 focus:ring-[#00a884] focus:outline-none"
+                            >
+                              <option value="Ordinaria">Ordinaria (General)</option>
+                              {members.filter(m => m.isActive).map(m => (
+                                <option key={m.id} value={m.name}>{m.name}</option>
+                              ))}
+                              {!members.some(m => m.name.toLowerCase() === editFormData.memberName.toLowerCase()) && editFormData.memberName !== 'Ordinaria' && (
+                                <option value={editFormData.memberName}>{editFormData.memberName} (Personalizado)</option>
+                              )}
+                            </select>
+                          </div>
+
+                          {/* Selector Categoría */}
+                          <div>
+                            <label className="block text-[10px] font-semibold text-muted-foreground mb-0.5">Categoría</label>
+                            <select
+                              value={editFormData.category}
+                              onChange={(e) => setEditFormData(prev => ({ ...prev, category: e.target.value }))}
+                              className="w-full bg-background text-foreground text-xs font-medium py-1.5 px-2 rounded-lg border border-border focus:ring-2 focus:ring-[#00a884] focus:outline-none"
+                            >
+                              {categories.map(cat => (
+                                <option key={cat} value={cat}>{cat}</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          {/* Monto */}
+                          <div>
+                            <label className="block text-[10px] font-semibold text-muted-foreground mb-0.5">Monto (C$)</label>
+                            <div className="relative">
+                              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs font-bold text-muted-foreground">C$</span>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={editFormData.amount}
+                                onChange={(e) => setEditFormData(prev => ({ ...prev, amount: e.target.value }))}
+                                className="w-full bg-background text-foreground text-xs font-medium py-1.5 pl-7 pr-2 rounded-lg border border-border focus:ring-2 focus:ring-[#00a884] focus:outline-none"
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-end gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={handleCancelEditOffering}
+                            className="px-3 py-1 text-xs font-semibold rounded-lg bg-muted text-muted-foreground hover:bg-muted/80"
+                          >
+                            Cancelar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleSaveEditOffering(targetId, idx)}
+                            className="inline-flex items-center gap-1 px-3 py-1 text-xs font-semibold rounded-lg bg-[#00a884] text-white hover:bg-[#008f6f] shadow-sm"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                            <span>Guardar cambios</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  if (isDeleting) {
+                    return (
+                      <div key={targetId} className="py-2.5 px-3 my-1 rounded-xl bg-destructive/10 border border-destructive/30 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                        <div className="text-xs text-foreground font-medium">
+                          ¿Seguro de eliminar la ofrenda de <strong className="font-bold">{offering.memberName || 'Ordinaria'}</strong> por <strong className="font-bold">C$ {offering.amount.toFixed(2)}</strong>?
+                        </div>
+                        <div className="flex items-center gap-1.5 self-end sm:self-auto">
+                          <button
+                            type="button"
+                            onClick={() => setDeleteConfirmId(null)}
+                            className="px-2.5 py-1 text-xs font-medium rounded-md bg-muted text-muted-foreground hover:bg-muted/80"
+                          >
+                            Cancelar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteOffering(targetId, idx)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-md bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            <span>Sí, eliminar</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div key={targetId} className="py-2.5 flex items-center justify-between text-sm group hover:bg-secondary/40 px-2 rounded-xl transition-colors">
+                      <div className="min-w-0 pr-2">
+                        <p className="font-semibold text-foreground truncate">
+                          {offering.memberName || 'Ordinaria'}
+                        </p>
+                        <span className="inline-block px-2 py-0.5 rounded text-[11px] font-semibold bg-muted text-muted-foreground">
+                          {offering.category}
+                        </span>
+                      </div>
+                      
+                      <div className="flex items-center gap-3 flex-shrink-0">
+                        <div className="text-right font-bold text-foreground text-sm">
+                          C$ {offering.amount.toLocaleString('es-NI', { minimumFractionDigits: 2 })}
+                        </div>
+
+                        {/* Action buttons */}
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => handleStartEditOffering(offering, idx)}
+                            className="p-1.5 rounded-lg text-muted-foreground hover:text-[#00a884] hover:bg-[#00a884]/10 transition-colors"
+                            title="Editar esta ofrenda (miembro, categoría o monto)"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDeleteConfirmId(targetId);
+                              setEditingOfferingId(null);
+                            }}
+                            className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                            title="Eliminar esta ofrenda"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>

@@ -1,6 +1,6 @@
 import { Member, Formulas, MonthlyReportFormState, ChurchInfo } from './types';
 
-export const APP_VERSION = '2.2.4';
+export const APP_VERSION = '2.2.6';
 
 // Lista de miembros actualizada según la solicitud del usuario.
 export const INITIAL_MEMBERS: Member[] = [
@@ -32,6 +32,7 @@ export const INITIAL_CATEGORIES: string[] = [
   'Primicias',
   'Luz',
   'Agua',
+  'Gas',
   'Ceremonial',
 ];
 
@@ -46,6 +47,8 @@ export const DEFAULT_CHURCH_INFO: ChurchInfo = {
   district: '2',
   department: 'Matagalpa',
   ministerPhone: '57693382',
+  dependentFamilyMembers: '0',
+  initialProConstruccion: '',
   ministerSignature: '',
 };
 

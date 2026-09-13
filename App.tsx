@@ -8,7 +8,7 @@ import { INITIAL_MEMBERS, INITIAL_CATEGORIES, DEFAULT_FORMULAS, DEFAULT_CHURCH_I
 import MainApp from './screens/MainApp';
 import MainAppSencillo from './screens/MainAppSencillo';
 import WhatsAppApp from './components/whatsapp/WhatsAppApp';
-import { syncAllWeeklyRecords } from './utils/syncService';
+import { syncAllWeeklyRecords, uploadWeeklyRecordToCloud } from './utils/syncService';
 
 // A custom hook to manage state in localStorage
 function useLocalStorage<T>(key: string, initialValue: T): [T, React.Dispatch<React.SetStateAction<T>>] {
@@ -201,6 +201,31 @@ const App: React.FC = () => {
         }
     }, [isLoggedIn, supabase, fetchItems, addItem]);
 
+
+    // Auto-sincronización en segundo plano con debounce para asegurar que los registros
+    // se suban a la nube automáticamente cuando el usuario añade o corrige ofrendas
+    const lastUploadedHashesRef = React.useRef<Record<string, string>>({});
+    useEffect(() => {
+        if (!supabase || isLoading || !weeklyRecords || weeklyRecords.length === 0) return;
+
+        const autoSyncTimer = setTimeout(async () => {
+            try {
+                const cats = categories.length > 0 ? categories : INITIAL_CATEGORIES;
+                for (const record of weeklyRecords) {
+                    if (!record.offerings || record.offerings.length === 0) continue;
+                    const hash = `${record.offerings.length}-${record.offerings.map(o => `${o.id || ''}:${o.memberName || ''}:${o.category || ''}:${o.amount}`).join('|')}`;
+                    if (lastUploadedHashesRef.current[record.id] !== hash) {
+                        await uploadWeeklyRecordToCloud(uploadFile, record, cats);
+                        lastUploadedHashesRef.current[record.id] = hash;
+                    }
+                }
+            } catch (e) {
+                console.warn("Auto-sincronización en segundo plano postergada:", e);
+            }
+        }, 2500);
+
+        return () => clearTimeout(autoSyncTimer);
+    }, [weeklyRecords, supabase, isLoading, uploadFile, categories]);
 
     useEffect(() => {
         if (theme === 'dark') {

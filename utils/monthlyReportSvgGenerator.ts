@@ -57,7 +57,7 @@ export const generateMonthlyReportSvg = (
     const grado = getText('grado-ministro', churchInfo.ministerGrade || 'O.B');
     const telefono = getText('tel-ministro', churchInfo.ministerPhone || '');
     const celular = getText('cel-ministro', churchInfo.ministerPhone || telefono);
-    const familiares = getText('fam-dependientes', '0');
+    const familiares = getText('fam-dependientes', churchInfo.dependentFamilyMembers || '0');
     const obreros = getText('obreros', '0');
 
     // Entradas - Saldo Anterior

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Member, Formulas, ChurchInfo, Comisionado, WeeklyRecord, MonthlyReport } from '../../types';
 import { useSupabase } from '../../context/SupabaseContext';
 import { UserPlus, Pencil, Trash2, Check, X, Server, Wifi, AlertTriangle, Save, Phone } from 'lucide-react';
@@ -86,6 +86,10 @@ const AdminPanelTab: React.FC<AdminPanelTabProps> = ({
     const [newCategory, setNewCategory] = useState('');
     const [tempFormulas, setTempFormulas] = useState<Formulas>(formulas);
     const [tempChurchInfo, setTempChurchInfo] = useState<ChurchInfo>(churchInfo);
+
+    useEffect(() => {
+        setTempChurchInfo(churchInfo);
+    }, [churchInfo]);
     const [editingMember, setEditingMember] = useState<Member | null>(null);
     const [newComisionado, setNewComisionado] = useState({ nombre: '', cargo: 'Comisión de Finanzas', celular: '' });
     const [editingComisionado, setEditingComisionado] = useState<Comisionado | null>(null);
@@ -546,6 +550,45 @@ const AdminPanelTab: React.FC<AdminPanelTabProps> = ({
                     <div>
                         <label className="block text-sm font-medium text-muted-foreground">Teléfono Ministro</label>
                         <input type="text" name="ministerPhone" value={tempChurchInfo.ministerPhone} onChange={handleChurchInfoChange} className="mt-1 w-full p-2 border-input bg-input rounded-md"/>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-muted-foreground">Familiares Dependientes</label>
+                        <input 
+                            type="number" 
+                            min="0"
+                            name="dependentFamilyMembers" 
+                            value={tempChurchInfo.dependentFamilyMembers ?? '0'} 
+                            onChange={handleChurchInfoChange} 
+                            placeholder="0" 
+                            className="mt-1 w-full p-2 border-input bg-input rounded-md"
+                        />
+                        <span className="text-[11px] text-muted-foreground block mt-0.5">Se completará automáticamente en el informe mensual</span>
+                    </div>
+                    <div className="md:col-span-2 p-3.5 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 mb-1">
+                            <label className="block text-sm font-bold text-foreground">
+                                Pro-construcción (Saldo de Mes Anterior)
+                            </label>
+                            <span className="inline-flex items-center text-[10px] font-semibold uppercase tracking-wider bg-amber-500/20 text-amber-800 dark:text-amber-300 px-2 py-0.5 rounded w-fit">
+                                Configuración Temporal
+                            </span>
+                        </div>
+                        <p className="text-xs text-muted-foreground mb-2">
+                            Añade temporalmente el saldo de pro-construcción acumulado mientras se completan los informes de meses previos. Este valor se transferirá automáticamente como Saldo de Mes Anterior al generar el informe mensual.
+                        </p>
+                        <div className="relative max-w-sm">
+                            <span className="absolute left-3 top-2 text-muted-foreground font-semibold text-sm">C$</span>
+                            <input 
+                                type="number" 
+                                step="0.01" 
+                                min="0" 
+                                name="initialProConstruccion" 
+                                value={tempChurchInfo.initialProConstruccion ?? ''} 
+                                onChange={handleChurchInfoChange} 
+                                placeholder="0.00" 
+                                className="w-full pl-9 p-2 border-input bg-input rounded-md font-mono"
+                            />
+                        </div>
                     </div>
                     <div className="md:col-span-2">
                         <label className="block text-sm font-medium text-muted-foreground">Firma del Ministro (PNG/JPG, max 500KB)</label>
